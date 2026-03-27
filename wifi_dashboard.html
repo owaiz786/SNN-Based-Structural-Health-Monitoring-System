@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WiFi SNN Anomaly Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;700;900&display=swap" rel="stylesheet"/>
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<style>
+  :root {
+    --bg: #050a0f; --surface: #080f18; --border: #0d2035;
+    --accent: #00e5ff; --accent2: #00ff88; --warn: #ffaa00;
+    --danger: #ff2244; --text: #c8dde8; --dim: #3a5a70;
+    --glow: 0 0 12px #00e5ff55; --glow-g: 0 0 12px #00ff8855;
+    --glow-r: 0 0 20px #ff224488;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh; overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px);
+    pointer-events: none; z-index: 999;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 28px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, #050a0f 60%, #061520 100%);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { display: flex; align-items: center; gap: 14px; }
+  .logo-icon {
+    width: 38px; height: 38px; border: 2px solid var(--accent);
+    border-radius: 6px; display: grid; place-items: center;
+    box-shadow: var(--glow); animation: pulse-border 2.5s infinite;
+  }
+  @keyframes pulse-border {
+    0%,100% { box-shadow: 0 0 8px #00e5ff44; }
+    50% { box-shadow: 0 0 22px #00e5ffaa; }
+  }
+  .logo-icon svg { width: 22px; height: 22px; }
+  .logo-text h1 {
+    font-family: 'Exo 2', sans-serif; font-weight: 900;
+    font-size: 1.1rem; color: var(--accent);
+    letter-spacing: 3px; text-transform: uppercase;
+  }
+  .logo-text p { font-size: 0.62rem; color: var(--dim); letter-spacing: 2px; }
+  .header-right { display: flex; align-items: center; gap: 24px; }
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border: 1px solid var(--border);
+    border-radius: 2px; font-size: 0.72rem; letter-spacing: 1.5px;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent2); box-shadow: var(--glow-g);
+    animation: blink 1.2s infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  #clock { font-size: 0.78rem; color: var(--dim); }
+  main {
+    display: grid; grid-template-columns: 280px 1fr;
+    grid-template-rows: auto auto 1fr; gap: 16px;
+    padding: 20px 24px; max-width: 1440px; margin: 0 auto;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 18px;
+  }
+  .card-title {
+    font-size: 0.62rem; letter-spacing: 3px; color: var(--dim);
+    text-transform: uppercase; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-title::before {
+    content: ''; display: block; width: 3px; height: 12px;
+    background: var(--accent); box-shadow: var(--glow);
+  }
+  .sidebar { grid-column: 1; grid-row: 1 / 4; display: flex; flex-direction: column; gap: 14px; }
+  .big-stat { text-align: center; padding: 22px 10px; }
+  .big-stat .value {
+    font-family: 'Exo 2', sans-serif; font-weight: 900;
+    font-size: 3.2rem; line-height: 1; color: var(--accent2);
+    text-shadow: var(--glow-g); transition: color 0.3s;
+  }
+  .big-stat.anomaly .value { color: var(--danger); text-shadow: var(--glow-r); }
+  .big-stat .label { font-size: 0.65rem; letter-spacing: 2px; color: var(--dim); margin-top: 6px; }
+  .metric-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+    font-size: 0.75rem;
+  }
+  .metric-row:last-child { border-bottom: none; }
+  .metric-row .mkey { color: var(--dim); letter-spacing: 1px; }
+  .metric-row .mval { color: var(--accent); font-weight: bold; }
+  .gauge-wrap { position: relative; width: 160px; height: 80px; margin: 10px auto; }
+  .gauge-wrap canvas { width: 100%; height: 100%; }
+  .gauge-pct {
+    position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    font-family: 'Exo 2', sans-serif; font-weight: 700;
+    font-size: 1.4rem; color: var(--accent); text-shadow: var(--glow);
+  }
+  .verdict {
+    grid-column: 2; grid-row: 1; display: flex;
+    align-items: center; justify-content: space-between; padding: 20px 28px;
+  }
+  .verdict-label {
+    font-family: 'Exo 2', sans-serif; font-weight: 900;
+    font-size: 2rem; letter-spacing: 6px; text-transform: uppercase;
+    transition: color 0.3s, text-shadow 0.3s;
+  }
+  .verdict-label.normal  { color: var(--accent2); text-shadow: var(--glow-g); }
+  .verdict-label.anomaly { color: var(--danger); text-shadow: var(--glow-r); animation: shake 0.4s; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+  }
+  .verdict-meta { font-size: 0.7rem; color: var(--dim); line-height: 1.8; text-align: right; }
+  .verdict-meta span { color: var(--text); }
+  .waves { grid-column: 2; grid-row: 2; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .wave-card { overflow: hidden; }
+  .wave-card canvas { width: 100%; height: 80px; display: block; }
+  .log-area {
+    grid-column: 2; grid-row: 3; display: grid;
+    grid-template-columns: 1fr 320px; gap: 14px; min-height: 0;
+  }
+  .log-scroll {
+    overflow-y: auto; max-height: 340px;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  .log-row {
+    display: grid; grid-template-columns: 60px 110px 80px 80px 80px 80px 1fr;
+    gap: 6px; align-items: center; padding: 6px 10px;
+    border-bottom: 1px solid #0a1c2a; font-size: 0.7rem;
+    transition: background 0.2s; animation: fadeIn 0.3s;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity:1; } }
+  .log-row:hover { background: #0a1828; }
+  .log-row.anomaly-row { background: #1a060a; border-left: 2px solid var(--danger); }
+  .log-row.normal-row  { border-left: 2px solid transparent; }
+  .log-header {
+    display: grid; grid-template-columns: 60px 110px 80px 80px 80px 80px 1fr;
+    gap: 6px; padding: 5px 10px; font-size: 0.6rem;
+    letter-spacing: 1.5px; color: var(--dim);
+    border-bottom: 1px solid var(--border); background: #050a0f;
+    position: sticky; top: 0; z-index: 1;
+  }
+  .tag {
+    padding: 2px 7px; border-radius: 2px; font-size: 0.62rem;
+    letter-spacing: 1px; font-weight: bold; text-align: center;
+  }
+  .tag.n { background: #002d20; color: var(--accent2); }
+  .tag.a { background: #2d0010; color: var(--danger); }
+  .prob-bar-wrap { position: relative; height: 10px; background: #0d2035; border-radius: 2px; overflow: hidden; }
+  .prob-bar { height: 100%; border-radius: 2px; transition: width 0.3s; }
+  .spike-card { overflow: hidden; }
+  .spike-card canvas { width: 100%; height: 100%; display: block; }
+  .controls { display: flex; gap: 10px; align-items: center; }
+  .btn {
+    padding: 8px 18px; border: 1px solid var(--accent);
+    background: transparent; color: var(--accent);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.72rem; letter-spacing: 2px;
+    cursor: pointer; border-radius: 2px;
+    transition: background 0.2s, box-shadow 0.2s;
+    text-transform: uppercase;
+  }
+  .btn:hover { background: #00e5ff18; box-shadow: var(--glow); }
+  .btn.active { background: #00e5ff25; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); }
+  .btn.danger:hover { background: #ff224418; }
+  .speed-label { font-size: 0.65rem; color: var(--dim); }
+  select {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); font-family: 'Share Tech Mono', monospace;
+    font-size: 0.72rem; padding: 6px 10px; border-radius: 2px; cursor: pointer;
+  }
+  .connection-status {
+    position: fixed; bottom: 20px; right: 20px;
+    padding: 8px 16px; border-radius: 4px; font-size: 0.7rem;
+    background: var(--surface); border: 1px solid var(--border);
+    z-index: 1000; display: flex; align-items: center; gap: 8px;
+  }
+  .connection-status.connected { border-color: var(--accent2); color: var(--accent2); }
+  .connection-status.disconnected { border-color: var(--danger); color: var(--danger); }
+  .connection-status.connecting { border-color: var(--warn); color: var(--warn); }
+  .esp-info {
+    position: fixed; bottom: 20px; left: 20px;
+    padding: 8px 16px; border-radius: 4px; font-size: 0.7rem;
+    background: var(--surface); border: 1px solid var(--border);
+    z-index: 1000; color: var(--accent);
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    .sidebar { grid-column: 1; grid-row: auto; }
+    .verdict, .waves, .log-area { grid-column: 1; grid-row: auto; }
+    .waves { grid-template-columns: 1fr; }
+    .log-area { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#00e5ff" stroke-width="1.8">
+        <path d="M2 12h3l3-7 4 14 3-9 2 2h5"/>
+        <circle cx="18" cy="6" r="3" fill="#00e5ff"/>
+      </svg>
+    </div>
+    <div class="logo-text">
+      <h1>WiFi SNN Monitor</h1>
+      <p>ESP32 · WiFi · IMPROVED-SNN · NORSE</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="controls">
+      <span class="speed-label">SPEED</span>
+      <select id="speedSel">
+        <option value="200">0.5×</option>
+        <option value="100" selected>1×</option>
+        <option value="50">2×</option>
+        <option value="20">5×</option>
+      </select>
+      <button class="btn" id="pauseBtn">PAUSE</button>
+      <button class="btn danger" id="clearBtn">CLEAR LOG</button>
+    </div>
+    <div class="status-pill"><div class="dot" id="statusDot"></div><span id="statusTxt">CONNECTING...</span></div>
+    <div id="clock"></div>
+  </div>
+</header>
+
+<main>
+  <aside class="sidebar">
+    <div class="card big-stat" id="verdictCard">
+      <div class="value" id="bigVerdict">–</div>
+      <div class="label">PREDICTION</div>
+    </div>
+    <div class="card">
+      <div class="card-title">ANOMALY PROBABILITY</div>
+      <div class="gauge-wrap">
+        <canvas id="gaugeCanvas" width="320" height="160"></canvas>
+        <div class="gauge-pct" id="gaugePct">0%</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">SESSION STATS</div>
+      <div class="metric-row"><span class="mkey">SAMPLES</span><span class="mval" id="mTotal">0</span></div>
+      <div class="metric-row"><span class="mkey">ANOMALIES</span><span class="mval" id="mAnom">0</span></div>
+      <div class="metric-row"><span class="mkey">ANOM RATE</span><span class="mval" id="mRate">0.0%</span></div>
+      <div class="metric-row"><span class="mkey">SAMPLE RATE</span><span class="mval" id="mHz">–</span></div>
+      <div class="metric-row"><span class="mkey">THRESHOLD</span><span class="mval" id="mThreshold">0.500</span></div>
+      <div class="metric-row"><span class="mkey">INPUT FEAT</span><span class="mval" id="mFeatures">5</span></div>
+      <div class="metric-row"><span class="mkey">TIME STEPS</span><span class="mval" id="mTimeSteps">120</span></div>
+      <div class="metric-row"><span class="mkey">CONNECTION</span><span class="mval" id="mConn">WiFi</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">RAW FEATURES</div>
+      <div class="metric-row"><span class="mkey">AX</span><span class="mval" id="fAX">–</span></div>
+      <div class="metric-row"><span class="mkey">AY</span><span class="mval" id="fAY">–</span></div>
+      <div class="metric-row"><span class="mkey">AZ</span><span class="mval" id="fAZ">–</span></div>
+      <div class="metric-row"><span class="mkey">MAG</span><span class="mval" id="fMAG">–</span></div>
+      <div class="metric-row"><span class="mkey">SUM_ABS</span><span class="mval" id="fSUM">–</span></div>
+    </div>
+  </aside>
+
+  <div class="card verdict">
+    <div>
+      <div class="verdict-label normal" id="verdictLabel">AWAITING DATA</div>
+      <div style="font-size:0.65rem;color:var(--dim);margin-top:6px;letter-spacing:2px;" id="verdictSub">IMPROVED-SNN · SOFTMAX CLASS 1 THRESHOLD ≥ 0.500</div>
+    </div>
+    <div class="verdict-meta">
+      SAMPLE <span id="vSample">–</span><br>
+      P(NORMAL) <span id="vNorm">–</span><br>
+      P(ANOMALY) <span id="vAnom">–</span><br>
+      ELAPSED <span id="vElapsed">–</span>
+    </div>
+  </div>
+
+  <div class="waves">
+    <div class="card wave-card">
+      <div class="card-title">ACCEL X</div>
+      <canvas id="waveAX" width="600" height="80"></canvas>
+    </div>
+    <div class="card wave-card">
+      <div class="card-title">ACCEL Y</div>
+      <canvas id="waveAY" width="600" height="80"></canvas>
+    </div>
+    <div class="card wave-card">
+      <div class="card-title">ACCEL Z · MAGNITUDE</div>
+      <canvas id="waveAZ" width="600" height="80"></canvas>
+    </div>
+  </div>
+
+  <div class="log-area">
+    <div class="card">
+      <div class="card-title">PREDICTION LOG</div>
+      <div class="log-header">
+        <span>#</span><span>TIME</span><span>STATUS</span>
+        <span>AX</span><span>AY</span><span>AZ</span><span>P(ANOM)</span>
+      </div>
+      <div class="log-scroll" id="logScroll"></div>
+    </div>
+    <div class="card spike-card">
+      <div class="card-title">SPIKE RASTER · LAYER 1</div>
+      <canvas id="spikeCanvas" width="300" height="280"></canvas>
+    </div>
+  </div>
+</main>
+
+<div class="connection-status disconnected" id="connStatus">
+  <span class="dot" id="connDot"></span>
+  <span id="connText">Disconnected</span>
+</div>
+
+<div class="esp-info" id="espInfo">
+  📡 ESP32: <span id="espIp">Not connected</span>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// CONFIGURATION
+// ─────────────────────────────────────────────
+const THRESHOLD = 0.5;
+const WAVE_LEN = 120;
+const SOCKET_URL = window.location.origin;
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let count = 0, anomalyCount = 0, startTime = Date.now();
+let paused = false;
+let interval = null;
+let socket = null;
+let backendReady = false;
+let currentEspIp = 'Not connected';
+
+const waveData = {
+  ax: new Array(WAVE_LEN).fill(0),
+  ay: new Array(WAVE_LEN).fill(0),
+  az: new Array(WAVE_LEN).fill(0),
+  mag: new Array(WAVE_LEN).fill(0),
+  prob: new Array(WAVE_LEN).fill(0),
+};
+
+const NEURONS = 32, SPIKE_HISTORY = 40;
+const spikes = Array.from({ length: NEURONS }, () => new Array(SPIKE_HISTORY).fill(0));
+const MAX_LOG = 200;
+let logRows = [];
+
+// ─────────────────────────────────────────────
+// WEBSOCKET SETUP
+// ─────────────────────────────────────────────
+function initWebSocket() {
+  console.log(`🔌 Connecting to ${SOCKET_URL}`);
+  updateConnectionStatus('connecting');
+  
+  socket = io(SOCKET_URL, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000
+  });
+
+  socket.on('connect', () => {
+    console.log('✅ WebSocket connected');
+    updateConnectionStatus('connected');
+    document.getElementById('statusTxt').textContent = 'LIVE · CONNECTED';
+    socket.emit('client_ready', { user_agent: navigator.userAgent });
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log(`❌ WebSocket disconnected: ${reason}`);
+    updateConnectionStatus('disconnected');
+    document.getElementById('statusTxt').textContent = 'OFFLINE';
+  });
+
+  socket.on('connect_error', (err) => {
+    console.error(`❌ Connection error: ${err.message}`);
+    updateConnectionStatus('disconnected');
+  });
+
+  socket.on('system_status', (msg) => {
+    console.log(`📡 System: ${msg.message}`);
+  });
+
+  socket.on('backend_ready', (config) => {
+    console.log('✅ Backend ready:', config);
+    backendReady = true;
+    if (config.threshold) {
+      document.getElementById('mThreshold').textContent = config.threshold.toFixed(3);
+    }
+    if (config.features) {
+      document.getElementById('mFeatures').textContent = config.features;
+    }
+    if (config.time_steps) {
+      document.getElementById('mTimeSteps').textContent = config.time_steps;
+    }
+  });
+
+  socket.on('sensor_update', (data) => {
+    if (paused) return;
+    
+    count = data.count || count;
+    
+    const isAnom = data.prediction?.class === 1;
+    updateVerdict(isAnom, data.prediction);
+    
+    if (data.stats) {
+      updateStats(data.stats);
+    }
+    
+    if (data.raw_features) {
+      updateFeatures(data.raw_features);
+    }
+    
+    if (data.raw_features) {
+      updateWaveforms(data.raw_features, data.prediction?.p_anomaly || 0);
+    }
+    
+    if (data.normalized_features?.length) {
+      updateSpikes(data.normalized_features);
+    }
+    
+    // Update ESP32 info
+    if (data.esp32_info?.ip) {
+      currentEspIp = data.esp32_info.ip;
+      document.getElementById('espIp').textContent = `${currentEspIp}:${data.esp32_info.port || 8080}`;
+    }
+    
+    addLogRow({
+      ax: data.raw_features?.ax || 0,
+      ay: data.raw_features?.ay || 0,
+      az: data.raw_features?.az || 0,
+      pAnom: data.prediction?.p_anomaly || 0,
+      prediction: data.prediction?.class || 0,
+      timestamp: data.timestamp || Date.now() / 1000
+    });
+    
+    drawSpikes();
+  });
+}
+
+function updateConnectionStatus(status) {
+  const el = document.getElementById('connStatus');
+  const dot = document.getElementById('connDot');
+  const text = document.getElementById('connText');
+  
+  el.className = `connection-status ${status}`;
+  
+  if (status === 'connected') {
+    dot.style.background = 'var(--accent2)';
+    dot.style.boxShadow = 'var(--glow-g)';
+    text.textContent = 'Connected to backend';
+  } else if (status === 'connecting') {
+    dot.style.background = 'var(--warn)';
+    dot.style.boxShadow = 'none';
+    text.textContent = 'Connecting...';
+  } else {
+    dot.style.background = 'var(--danger)';
+    dot.style.boxShadow = 'var(--glow-r)';
+    text.textContent = 'Disconnected';
+  }
+}
+
+// ─────────────────────────────────────────────
+// UI UPDATE FUNCTIONS
+// ─────────────────────────────────────────────
+function updateVerdict(isAnomaly, pred) {
+  if (!pred) return;
+  
+  const vl = document.getElementById('verdictLabel');
+  const vc = document.getElementById('verdictCard');
+  const bv = document.getElementById('bigVerdict');
+  
+  if (vl) {
+    vl.textContent = isAnomaly ? '⚠ ANOMALY DETECTED' : '✓ NORMAL';
+    vl.className = `verdict-label ${isAnomaly ? 'anomaly' : 'normal'}`;
+    if (isAnomaly) { 
+      vl.style.animation = 'none'; 
+      void vl.offsetWidth; 
+      vl.style.animation = 'shake 0.4s'; 
+    }
+  }
+  if (vc && bv) {
+    bv.textContent = isAnomaly ? 'ANOM' : 'OK';
+    vc.className = `card big-stat ${isAnomaly ? 'anomaly' : ''}`;
+  }
+  
+  setText('vNorm', (pred.p_normal * 100).toFixed(1) + '%');
+  setText('vAnom', (pred.p_anomaly * 100).toFixed(1) + '%');
+  
+  drawGauge(pred.p_anomaly);
+  setText('gaugePct', (pred.p_anomaly * 100).toFixed(0) + '%');
+  const gp = document.getElementById('gaugePct');
+  if (gp) {
+    gp.style.color = isAnomaly ? 'var(--danger)' : 
+                     (pred.p_anomaly > 0.3 ? 'var(--warn)' : 'var(--accent2)');
+  }
+}
+
+function updateStats(stats) {
+  if (!stats) return;
+  setText('mTotal', stats.total_samples || 0);
+  setText('mAnom', stats.anomaly_count || 0);
+  setText('mRate', (stats.anomaly_rate || 0).toFixed(1) + '%');
+  setText('mHz', (stats.sample_rate || 0).toFixed(2) + ' Hz');
+  setText('vElapsed', ((Date.now() - startTime) / 1000).toFixed(1) + 's');
+  setText('vSample', stats.total_samples || 0);
+}
+
+function updateFeatures(feat) {
+  if (!feat) return;
+  setText('fAX', feat.ax?.toFixed(3) || '–');
+  setText('fAY', feat.ay?.toFixed(3) || '–');
+  setText('fAZ', feat.az?.toFixed(3) || '–');
+  setText('fMAG', feat.mag?.toFixed(3) || '–');
+  setText('fSUM', feat.sum_abs?.toFixed(3) || '–');
+}
+
+function updateWaveforms(feat, prob) {
+  if (!feat) return;
+  waveData.ax.shift(); waveData.ax.push(feat.ax || 0);
+  waveData.ay.shift(); waveData.ay.push(feat.ay || 0);
+  waveData.az.shift(); waveData.az.push(feat.az || 0);
+  waveData.mag.shift(); waveData.mag.push(feat.mag || 0);
+  waveData.prob.shift(); waveData.prob.push(prob || 0);
+  
+  drawWave('waveAX', waveData.ax, '#00e5ff', -15, 15);
+  drawWave('waveAY', waveData.ay, '#00ff88', -15, 15);
+  drawWave('waveAZ', waveData.az, '#7755ff', 0, 20, waveData.mag, '#ffaa00');
+}
+
+// ─────────────────────────────────────────────
+// WAVEFORM RENDERER
+// ─────────────────────────────────────────────
+function drawWave(canvasId, data, color, minV, maxV, extraData, extraColor) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.strokeStyle = '#0d2035';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = (i / 4) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  const zeroY = H - ((0 - minV) / (maxV - minV)) * H;
+  ctx.strokeStyle = '#1a3050';
+  ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(W, zeroY); ctx.stroke();
+
+  const drawLine = (arr, col) => {
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    arr.forEach((v, i) => {
+      const x = (i / (arr.length - 1)) * W;
+      const y = H - ((v - minV) / (maxV - minV)) * H;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  };
+
+  drawLine(data, color);
+  if (extraData) drawLine(extraData, extraColor);
+}
+
+// ─────────────────────────────────────────────
+// GAUGE
+// ─────────────────────────────────────────────
+function drawGauge(prob) {
+  const c = document.getElementById('gaugeCanvas');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const cx = W / 2, cy = H - 10, r = 110;
+  const startA = Math.PI, endA = 2 * Math.PI;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startA, endA);
+  ctx.strokeStyle = '#0d2035';
+  ctx.lineWidth = 18;
+  ctx.stroke();
+
+  const fillEnd = startA + prob * Math.PI;
+  const col = prob < 0.5
+    ? `hsl(${150 - prob * 100},100%,55%)`
+    : `hsl(${50 - (prob - 0.5) * 100},100%,55%)`;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startA, fillEnd);
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 18;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 16;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  for (let i = 0; i <= 10; i++) {
+    const a = Math.PI + (i / 10) * Math.PI;
+    const x1 = cx + (r - 24) * Math.cos(a);
+    const y1 = cy + (r - 24) * Math.sin(a);
+    const x2 = cx + (r - 12) * Math.cos(a);
+    const y2 = cy + (r - 12) * Math.sin(a);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.strokeStyle = '#1a3050'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+}
+
+// ─────────────────────────────────────────────
+// SPIKE RASTER
+// ─────────────────────────────────────────────
+function updateSpikes(normalizedFeatures) {
+  if (!normalizedFeatures || !Array.isArray(normalizedFeatures)) return;
+  
+  spikes.forEach((row, n) => {
+    row.shift();
+    const p = normalizedFeatures[n % normalizedFeatures.length] + Math.random() * 0.15;
+    row.push(Math.random() < p ? 1 : 0);
+  });
+}
+
+function drawSpikes() {
+  const c = document.getElementById('spikeCanvas');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#050a0f';
+  ctx.fillRect(0, 0, W, H);
+
+  const rowH = H / NEURONS;
+  const colW = W / SPIKE_HISTORY;
+
+  spikes.forEach((row, n) => {
+    row.forEach((s, t) => {
+      if (s) {
+        const x = t * colW;
+        const y = n * rowH;
+        ctx.fillStyle = n < 10 ? '#00e5ff' : n < 21 ? '#00ff88' : '#ffaa00';
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = 3;
+        ctx.fillRect(x + 1, y + 1, colW - 1, rowH - 1);
+      }
+    });
+  });
+  ctx.shadowBlur = 0;
+}
+
+// ─────────────────────────────────────────────
+// LOG
+// ─────────────────────────────────────────────
+function addLogRow(sample) {
+  const { ax, ay, az, pAnom, prediction, timestamp } = sample;
+  const date = timestamp ? new Date(timestamp * 1000) : new Date();
+  const ts = `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}:${String(date.getSeconds()).padStart(2,'0')}`;
+
+  logRows.unshift({ n: count, ts, ax, ay, az, pAnom, prediction });
+  if (logRows.length > MAX_LOG) logRows.pop();
+
+  const scroll = document.getElementById('logScroll');
+  if (!scroll) return;
+  const isAnomaly = prediction === 1;
+
+  const row = document.createElement('div');
+  row.className = `log-row ${isAnomaly ? 'anomaly-row' : 'normal-row'}`;
+  row.innerHTML = `
+    <span style="color:var(--dim)">${count}</span>
+    <span style="color:var(--dim);font-size:0.62rem">${ts}</span>
+    <span><span class="tag ${isAnomaly ? 'a' : 'n'}">${isAnomaly ? 'ANOMALY' : 'NORMAL'}</span></span>
+    <span style="color:${ax>0?'#00e5ff':'#ff8888'}">${ax.toFixed(2)}</span>
+    <span style="color:${ay>0?'#00e5ff':'#ff8888'}">${ay.toFixed(2)}</span>
+    <span style="color:${az>0?'#00e5ff':'#ff8888'}">${az.toFixed(2)}</span>
+    <div>
+      <div style="font-size:0.65rem;margin-bottom:3px;color:${isAnomaly?'var(--danger)':'var(--accent2)'}">${(pAnom*100).toFixed(1)}%</div>
+      <div class="prob-bar-wrap"><div class="prob-bar" style="width:${pAnom*100}%;background:${isAnomaly?'var(--danger)':'var(--accent2)'}"></div></div>
+    </div>
+  `;
+  scroll.prepend(row);
+  while (scroll.children.length > MAX_LOG) scroll.removeChild(scroll.lastChild);
+}
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function updateClock() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const el = document.getElementById('clock');
+  if (el) el.textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─────────────────────────────────────────────
+// CONTROLS
+// ─────────────────────────────────────────────
+document.getElementById('pauseBtn').addEventListener('click', function() {
+  paused = !paused;
+  this.textContent = paused ? 'RESUME' : 'PAUSE';
+  this.classList.toggle('active', paused);
+  document.getElementById('statusTxt').textContent = paused ? 'PAUSED' : (socket?.connected ? 'LIVE · CONNECTED' : 'OFFLINE');
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  const scroll = document.getElementById('logScroll');
+  if (scroll) scroll.innerHTML = '';
+  count = 0; anomalyCount = 0; startTime = Date.now();
+  Object.keys(waveData).forEach(k => waveData[k].fill(0));
+  spikes.forEach(row => row.fill(0));
+});
+
+document.getElementById('speedSel').addEventListener('change', function() {
+  clearInterval(interval);
+  interval = setInterval(() => { if (!paused) drawSpikes(); }, parseInt(this.value));
+});
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initWebSocket();
+  interval = setInterval(() => { if (!paused && backendReady) drawSpikes(); }, 100);
+});
+</script>
+</body>
+</html>
