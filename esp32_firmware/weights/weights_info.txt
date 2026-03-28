@@ -1,0 +1,47 @@
+SNN Model Weights Information
+============================================================
+
+Model Architecture:
+  Input size:  5
+  Hidden 1:    128
+  Hidden 2:    64
+  Hidden 3:    32
+  Output size: 2
+  Time steps:  120
+
+Layer Details:
+
+fc1:
+  Shape: 128 x 5
+  Weight scale: 442.0689
+  Bias scale: 17758.1668
+  Weight range: [-105, 127]
+  Bias range: [-87, 126]
+
+fc2:
+  Shape: 64 x 128
+  Weight scale: 557.9915
+  Bias scale: 12734.6887
+  Weight range: [-121, 127]
+  Bias range: [-127, 80]
+
+fc3:
+  Shape: 32 x 64
+  Weight scale: 405.5914
+  Bias scale: 818377.9112
+  Weight range: [-117, 127]
+  Bias range: [-127, 113]
+
+fc_out:
+  Shape: 2 x 32
+  Weight scale: 245.1920
+  Bias scale: 1075.9331
+  Weight range: [-127, 118]
+  Bias range: [-127, 105]
+
+Threshold: 0.8000
+
+Memory Requirements:
+  Total weights: 10944 bytes
+  Total biases: 226 bytes
+  Total: ~10.9 KB
