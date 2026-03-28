@@ -28,8 +28,8 @@
 #include "src/feature_engineering.h"
 
 // ==================== WiFi credentials ====================
-#define WIFI_SSID     "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define WIFI_SSID     "LAPTOP-Q5IS18KS 9743"
+#define WIFI_PASSWORD "Q0#o0108"
 
 // ==================== Global objects ======================
 MPU6050      mpu;
