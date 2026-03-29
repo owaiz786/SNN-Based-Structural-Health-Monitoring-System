@@ -45,11 +45,11 @@
 
 - ✅ **82.5% anomaly detection accuracy** with 74.6% recall
 - ✅ **Spiking Neural Network** with Leaky Integrate-and-Fire (LIF) neurons
-- ✅ **Three deployment paths**: Hybrid Edge-Cloud, TFLite Micro, Custom C++
+- ✅ **Three deployment paths**: Hybrid Edge-Cloud,  Custom C++
 - ✅ **ESP32-compatible** for true edge deployment (~$20 per node)
-- ✅ **Real-time dashboard** with live visualization (Streamlit)
+- ✅ **Real-time dashboard** with live visualization 
 - ✅ **Focal Loss + Class Weighting** for imbalanced data
-- ✅ **Feature engineering** (5 raw → 11 engineered features)
+- ✅ **Feature engineering** (5 raw  engineered features)
 - ✅ **Threshold optimization** for safety-critical applications
 - ✅ **Complete documentation** for college submission
 
