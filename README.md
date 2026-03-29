@@ -20,9 +20,7 @@
 - [Usage](#usage)
 - [Results](#results)
 - [Deployment Options](#deployment-options)
-- [Team](#team)
-- [License](#license)
-- [Citation](#citation)
+
 
 ---
 
